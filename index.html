@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>照片转拼豆图纸</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #f5f5f5;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+        gradio-lite {
+            display: block;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            min-height: 100vh;
+            background: white;
+            box-shadow: 0 0 20px rgba(0,0,0,0.05);
+        }
+        @media (max-width: 768px) {
+            gradio-lite {
+                padding: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <gradio-lite>
+        <!-- 使用 importmap 方式加载，更稳定 -->
+        <script type="importmap">
+        {
+            "imports": {
+                "@gradio/lite": "https://cdn.jsdelivr.net/npm/@gradio/lite/dist/index.js"
+            }
+        }
+        </script>
+        <!-- 直接内联 Python 代码，而不是用 src 引用 -->
+        <script type="py">
+            import micropip
+            await micropip.install(["numpy", "Pillow"])
+
+            # ============================================================
+            # 在这里粘贴你的 main.py 的完整内容（但需要去掉一些东西）
+            # ============================================================
+
+            # ---------- 色卡数据 ----------
+            PALETTE_DATA = [
+                ("A01", "White", (255,255,255)),
+                ("A02", "Cream", (244,233,212)),
+                ("A03", "Yellow", (255,230,0)),
+                ("A04", "Bright Yellow", (255,212,0)),
+                ("A05", "Light Orange", (255,179,71)),
+                ("A06", "Orange", (255,122,0)),
+                ("A07", "Red", (230,0,18)),
+                ("A08", "Bright Red", (255,45,45)),
+                ("A09", "Dark Red", (178,34,34)),
+                ("A10", "Wine", (114,47,55)),
+                ("A11", "Pink", (255,192,203)),
+                ("A12", "Bright Pink", (255,105,180)),
+                ("A13", "Magenta", (230,0,126)),
+                ("A14", "Purple", (128,0,128)),
+                ("A15", "Light Purple", (177,156,217)),
+                ("A16", "Lavender", (230,230,250)),
+                ("A17", "Light Blue", (173,216,230)),
+                ("A18", "Blue", (30,144,255)),
+                ("A19", "Dark Blue", (0,80,160)),
+                ("A20", "Navy", (0,35,102)),
+                ("A21", "Light Green", (144,238,144)),
+                ("A22", "Green", (0,166,81)),
+                ("A23", "Dark Green", (0,100,0)),
+                ("A24", "Mint", (152,255,179)),
+                ("A25", "Light Brown", (200,160,106)),
+                ("A26", "Brown", (139,90,43)),
+                ("A27", "Dark Brown", (92,51,23)),
+                ("A28", "Grey", (176,176,176)),
+                ("A29", "Dark Grey", (96,96,96)),
+                ("A30", "Black", (26,26,26)),
+                ("A31", "Peach", (255,218,179)),
+                ("A32", "Apricot", (248,184,139)),
+                ("A33", "Olive", (128,128,0)),
+                ("A34", "Khaki", (195,176,145)),
+                ("A35", "Sand", (226,202,156)),
+                ("A36", "Coral", (255,127,80)),
+                ("A37", "Salmon", (250,128,114)),
+                ("A38", "Rose", (246,84,106)),
+                ("A39", "Plum", (142,69,133)),
+                ("A40", "Cyan", (0,206,209)),
+                ("A41", "Teal", (0,128,128)),
+                ("A42", "Turquoise", (64,224,208)),
+                ("A43", "Sky Blue", (135,206,235)),
+                ("A44", "Royal Blue", (65,105,225)),
+                ("A45", "Indigo", (75,0,130)),
+                ("A46", "Forest Green", (34,139,34)),
+                ("A47", "Lime", (191,255,0)),
+                ("A48", "Chartreuse", (127,255,0)),
+                ("A49", "Gold", (212,175,55)),
+                ("A50", "Beige", (245,245,220)),
+                ("A51", "Pearl", (234,224,200)),
+                ("A52", "Champagne", (247,231,206)),
+                ("A53", "Burgundy", (128,0,32)),
+                ("A54", "Maroon", (97,0,0)),
+                ("A55", "Slate", (112,128,144))
+            ]
+
+            import numpy as np
+            from PIL import Image, ImageDraw
+            import io
+            import csv
+            import gradio as gr
+
+            PALETTE_IDS = [item[0] for item in PALETTE_DATA]
+            PALETTE_NAMES = [item[1] for item in PALETTE_DATA]
+            PALETTE_RGB = np.array([item[2] for item in PALETTE_DATA], dtype=np.float64)
+
+            def srgb_to_lab(rgb):
+                c = np.asarray(rgb, dtype=np.float64) / 255.0
+                mask = c > 0.04045
+                lin = np.where(mask, ((c + 0.055) / 1.055) ** 2.4, c / 12.92)
+                x = lin[..., 0] * 0.4124 + lin[..., 1] * 0.3576 + lin[..., 2] * 0.1805
+                y = lin[..., 0] * 0.2126 + lin[..., 1] * 0.7152 + lin[..., 2] * 0.0722
+                z = lin[..., 0] * 0.0193 + lin[..., 1] * 0.1192 + lin[..., 2] * 0.9505
+                x /= 0.95047
+                z /= 1.08883
+                def f(t):
+                    return np.where(t > 0.008856, np.cbrt(t), 7.787 * t + 16.0 / 116.0)
+                fx, fy, fz = f(x), f(y), f(z)
+                L = 116.0 * fy - 16.0
+                a = 500.0 * (fx - fy)
+                b = 200.0 * (fy - fz)
+                return np.stack([L, a, b], axis=-1)
+
+            PALETTE_LAB = srgb_to_lab(PALETTE_RGB)
+
+            def image_to_beads(img, board_width):
+                img = img.convert("RGB")
+                w, h = img.size
+                scale = board_width / w
+                board_height = max(1, round(h * scale))
+                small = img.resize((board_width, board_height), Image.LANCZOS)
+                pixels = np.asarray(small, dtype=np.float64)
+                flat = pixels.reshape(-1, 3)
+                lab_pix = srgb_to_lab(flat)
+
+                batch_size = 2000
+                n_pixels = lab_pix.shape[0]
+                idx = np.empty(n_pixels, dtype=np.int32)
+                for i in range(0, n_pixels, batch_size):
+                    batch = lab_pix[i:i+batch_size]
+                    dists = np.linalg.norm(batch[:, None, :] - PALETTE_LAB[None, :, :], axis=2)
+                    idx[i:i+batch_size] = dists.argmin(axis=1)
+
+                mapped_rgb = PALETTE_RGB[idx]
+                preview = mapped_rgb.reshape(board_height, board_width, 3).astype(np.uint8)
+                grid_ids = np.array(PALETTE_IDS)[idx].reshape(board_height, board_width)
+                return grid_ids.tolist(), preview
+
+            def render_preview(preview_rgb, bead_px=18):
+                h, w, _ = preview_rgb.shape
+                img = Image.fromarray(preview_rgb, "RGB")
+                return img.resize((w * bead_px, h * bead_px), Image.NEAREST)
+
+            def generate_export_bytes(grid_ids, bead_px=18):
+                h, w = len(grid_ids), len(grid_ids[0])
+                cell_size = bead_px
+                img_w, img_h = w * cell_size, h * cell_size
+                img = Image.new('RGB', (img_w, img_h), color='white')
+                draw = ImageDraw.Draw(img)
+                for r in range(h):
+                    for c in range(w):
+                        cid = grid_ids[r][c]
+                        try:
+                            color_idx = PALETTE_IDS.index(cid)
+                            rgb = tuple(int(v) for v in PALETTE_RGB[color_idx])
+                        except ValueError:
+                            rgb = (128,128,128)
+                        x0, y0 = c * cell_size, r * cell_size
+                        x1, y1 = x0 + cell_size, y0 + cell_size
+                        draw.rectangle([x0, y0, x1, y1], fill=rgb, outline='gray', width=1)
+
+                png_buf = io.BytesIO()
+                img.save(png_buf, format="PNG")
+                png_buf.seek(0)
+
+                pdf_buf = io.BytesIO()
+                img.convert("RGB").save(pdf_buf, format="PDF", resolution=300.0)
+                pdf_buf.seek(0)
+
+                return png_buf, pdf_buf
+
+            def process(image, board_width, bead_px):
+                if image is None:
+                    return None, "⚠️ 请先上传一张图片。", None, None, None
+
+                try:
+                    board_width = int(board_width)
+                    bead_px = int(bead_px)
+
+                    grid_ids, preview = image_to_beads(image, board_width)
+                    preview_img = render_preview(preview, bead_px)
+
+                    flat_ids = [c for row in grid_ids for c in row]
+                    total = len(flat_ids)
+                    name_of = dict(zip(PALETTE_IDS, PALETTE_NAMES))
+                    rgb_of = {cid: tuple(int(v) for v in PALETTE_RGB[i])
+                              for i, cid in enumerate(PALETTE_IDS)}
+
+                    uniq, counts = np.unique(flat_ids, return_counts=True)
+                    order = np.argsort(-counts)
+
+                    lines = [f"📊 豆板尺寸：{board_width} × {len(grid_ids)}，共 {total} 颗豆，使用 {len(uniq)} 种颜色\n"]
+                    lines.append(f"{'色号':<6}{'颜色名':<16}{'用量':>6}  hex")
+                    lines.append("-" * 44)
+                    for i in order:
+                        cid = uniq[i]
+                        cnt = int(counts[i])
+                        r, g, b = rgb_of[cid]
+                        lines.append(f"{cid:<6}{name_of[cid]:<16}{cnt:>6}  #{r:02X}{g:02X}{b:02X}")
+                    usage_text = "\n".join(lines)
+
+                    csv_buffer = io.StringIO()
+                    writer = csv.writer(csv_buffer)
+                    for row in grid_ids:
+                        writer.writerow(row)
+                    csv_content = csv_buffer.getvalue()
+
+                    png_buf, pdf_buf = generate_export_bytes(grid_ids, bead_px)
+
+                    return (
+                        preview_img,
+                        usage_text,
+                        ("图纸.png", png_buf.getvalue(), "image/png"),
+                        ("图纸.pdf", pdf_buf.getvalue(), "application/pdf"),
+                        ("色号网格.csv", csv_content.encode("utf-8"), "text/csv")
+                    )
+                except Exception as e:
+                    import traceback
+                    error_msg = f"❌ 转换过程中发生错误：\n{str(e)}\n\n{traceback.format_exc()}"
+                    return None, error_msg, None, None, None
+
+            # ---------- 构建 UI ----------
+            with gr.Blocks(title="照片转拼豆图纸", theme=gr.themes.Soft(primary_hue="orange")) as demo:
+                gr.Markdown("# 🟫 照片转拼豆图纸生成器 (浏览器版)")
+                with gr.Row():
+                    with gr.Column(scale=1):
+                        gr.Markdown("### 1️⃣ 上传与设置")
+                        img_in = gr.Image(label="上传照片", type="pil", height=300)
+                        board_width = gr.Slider(16, 160, value=48, step=1, label="豆板宽度（颗数）")
+                        bead_px = gr.Slider(8, 40, value=18, step=1, label="预览每豆像素")
+                        btn = gr.Button("✨ 生成图纸", variant="primary")
+                    with gr.Column(scale=2):
+                        gr.Markdown("### 2️⃣ 图纸预览与用色统计")
+                        img_out = gr.Image(label="图纸效果预览", height=350)
+                        usage_out = gr.Textbox(label="📊 用色统计清单", lines=14, interactive=False)
+                gr.Markdown("---")
+                gr.Markdown("### 3️⃣ 下载中心")
+                with gr.Row():
+                    png_out = gr.File(label="📥 下载 PNG 图纸")
+                    pdf_out = gr.File(label="📥 下载 PDF 图纸")
+                    csv_out = gr.File(label="📥 下载 CSV 色号网格")
+
+                btn.click(process,
+                          inputs=[img_in, board_width, bead_px],
+                          outputs=[img_out, usage_out, png_out, pdf_out, csv_out])
+
+            demo
+        </script>
+    </gradio-lite>
+</body>
+</html>
