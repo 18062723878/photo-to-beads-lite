@@ -1,1 +1,0 @@
-# photo-to-beads-lite
